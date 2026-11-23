@@ -1,6 +1,5 @@
 ##scripts/05_coexistence_mechanisms_with_facilitation
 source("functions/toolbox.R")
-
 library(mvtnorm)
 library(parallel)
 library(doParallel)
@@ -248,4 +247,3 @@ combined_sown_coex_fac$differential<-as.numeric(combined_sown_coex_fac$different
 combined_sown_coex_fac$sta.Omega<-(combined_sown_coex_fac$Omega-combined_sown_coex_fac$mean_omega_rand)/combined_sown_coex_fac$sd_omega_rand
 combined_sown_coex_fac$sta.theta<-(combined_sown_coex_fac$theta-combined_sown_coex_fac$mean_theta_rand)/combined_sown_coex_fac$sd_theta_rand
 combined_sown_coex_fac$sta.differential<-(combined_sown_coex_fac$differential-combined_sown_coex_fac$mean_differential)
-

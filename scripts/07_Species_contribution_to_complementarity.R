@@ -1,21 +1,25 @@
 ##scripts/07_Species_contribution_to_complementarity
+##Code for the results in Fig.5 and Fig. S10
+
 library(dplyr)
 library(broom)
 library(ggplot2)
 library(ggrepel)
 library(patchwork)
-ap_Biomass.1$Sp.contri.on.CE <- ap_Biomass.1$Mi*ap_Biomass.1$dRYi 
+#ap_Biomass.1$Sp.contri.on.CE <- ap_Biomass.1$Mi*ap_Biomass.1$dRYi 
+names(ap_Biomass.1)#as I have discussed in script_01, 2018 August 204, 2017 June 305 and 2023 August 323 plots should be excluded.
 
-mean.Sp.contri.to.CE <- subset(ap_Biomass.1, SD!=20) %>%
-  group_by(Plot_Nr, Month, N, F, Species) %>%
-  summarise(
-    Plot_Nr = first(Plot_Nr),
-    Block = first(block),
-    composition = first(composition),
-    Month = first(Month),
-    Species = first(Species),
-    N = first(N),
-    F = first(F),
+mean.Sp.contri.to.CE <- ap_Biomass.1 %>%
+  dplyr::filter(
+    SD != 20,
+    !(Year == 2018 & Month == "August" & Plot_Nr == 204),
+    !(Year == 2017 & Month == "June"   & Plot_Nr == 305),
+    !(Year == 2023 & Month == "August" & Plot_Nr == 323)
+  ) %>%
+  dplyr::group_by(Plot_Nr, Month, N, F, Species) %>%
+  dplyr::summarise(
+    Block = dplyr::first(block),
+    composition = dplyr::first(composition),
     mdRYi = mean(dRYi, na.rm = TRUE),
     mMi = mean(Mi, na.rm = TRUE),
     mSp.contri.on.CE = mean(Sp.contri.on.CE, na.rm = TRUE),
@@ -40,7 +44,6 @@ mean.Sp.contri.to.CE$Treatment[mean.Sp.contri.to.CE$N==1&mean.Sp.contri.to.CE$F=
 mean.Sp.contri.to.CE$Treatment<-factor(mean.Sp.contri.to.CE$Treatment, levels=c("control", "nitrogen", "fungicide", "NF"))
 mean.Sp.contri.to.CE$Month<-factor(mean.Sp.contri.to.CE$Month, levels = c("June", "August") )  
 summary(mean.Sp.contri.to.CE)
-
 
 Species.level.means <- mean.Sp.contri.to.CE %>%
   group_by(Month, N, Species) %>%
@@ -102,29 +105,65 @@ names(facilitation_df_N)[1] <- "Month"
 combined_species.level.means_facilitation <- merge(Species.level.means, facilitation_df_N, by = c("Month", "N_treatment", "Species"), all = TRUE)
 head(combined_species.level.means_facilitation)
 
-combined_species.level.means_facilitation %>% group_by(Month, N_treatment) %>% do({
-  df_clean <- na.omit(.)  # Remove rows with NAs
-  if(nrow(df_clean) > 1) {  # Check that there's enough data
-    model <- lm(mmSp.contri.on.CE ~ mfacil_received_prop, data = df_clean)
-    tidy_res <- tidy(model)
-    glance_res <- glance(model)
-    tidy_res$r.squared <- glance_res$r.squared
-    tidy_res$adj.r.squared <- glance_res$adj.r.squared
-    tidy_res
-  } else { tibble(
-    term = NA, estimate = NA, std.error = NA,
-    statistic = NA, p.value = NA,
-    r.squared = NA, adj.r.squared = NA
-  )
-  } }) %>%  filter(term == "mfacil_received_prop") %>% arrange(p.value)
+facilitation_lm_results <- combined_species.level.means_facilitation %>%
+  dplyr::group_by(Month, N_treatment) %>%
+  dplyr::group_modify(~ {
+    
+    df_clean <- .x %>%
+      dplyr::filter(
+        is.finite(mmSp.contri.on.CE),
+        is.finite(mfacil_received_prop)
+      )
+    
+    n_valid <- nrow(df_clean)
+    
+    if (
+      n_valid >= 3 &&
+      dplyr::n_distinct(df_clean$mfacil_received_prop) > 1 &&
+      dplyr::n_distinct(df_clean$mmSp.contri.on.CE) > 1
+    ) {
+      
+      model <- stats::lm(
+        mmSp.contri.on.CE ~ mfacil_received_prop,
+        data = df_clean
+      )
+      
+      model_summary <- broom::glance(model)
+      
+      broom::tidy(model) %>%
+        dplyr::filter(term == "mfacil_received_prop") %>%
+        dplyr::mutate(
+          n = n_valid,
+          r.squared = model_summary$r.squared,
+          adj.r.squared = model_summary$adj.r.squared
+        )
+      
+    } else {
+      
+      tibble::tibble(
+        term = "mfacil_received_prop",
+        estimate = NA_real_,
+        std.error = NA_real_,
+        statistic = NA_real_,
+        p.value = NA_real_,
+        n = n_valid,
+        r.squared = NA_real_,
+        adj.r.squared = NA_real_
+      )
+    }
+  }) %>%
+  dplyr::ungroup() %>%
+  dplyr::arrange(p.value)
+
+print(facilitation_lm_results, n = Inf, width = Inf)
 #June no N: p < 0.01, N: p < 0.10; August no N: p < 0.10, N: p<0.01
 
 combined_species.level.means_facilitation %>% group_by(Month, N_treatment) %>% do({
   df_clean <- na.omit(.)  # Remove rows with NAs
   if(nrow(df_clean) > 1) {  # Check that there's enough data
     model <- lm( mmRel.cover ~ mfacil_received_prop, data = df_clean)
-    tidy_res <- tidy(model)
-    glance_res <- glance(model)
+    tidy_res <- broom::tidy(model)
+    glance_res <- broom::glance(model)
     tidy_res$r.squared <- glance_res$r.squared
     tidy_res$adj.r.squared <- glance_res$adj.r.squared
     tidy_res
@@ -321,5 +360,5 @@ Fig.4_new_d4 <- make_facil_panel(
 
 Fig4.new_June <- (Fig.4_new_a1 + Fig.4_new_c3)  +  plot_annotation(tag_levels = 'A')
 Fig4.new_August <- (Fig.4_new_b2 +  Fig.4_new_d4) +  plot_annotation(tag_levels = 'A')
-ggsave("figures/Fig5.pdf", Fig4.new_June, width = 8, height = 3.5)
-ggsave("figures/FigS6.pdf", Fig4.new_August, width = 8, height = 3.5)
+ggsave("figures/Fig5_new.pdf", Fig4.new_June, width = 8, height = 3.5)
+ggsave("figures/FigS10_new.pdf", Fig4.new_August, width = 8, height = 3.5)

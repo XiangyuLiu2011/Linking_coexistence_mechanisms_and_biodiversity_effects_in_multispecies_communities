@@ -10,9 +10,15 @@ library(parallel)
 library(MASS)
 library(dplyr)
 library(anisoFun)
+
+# Make the internal helper available to the custom theta1() function.
+check_A_int <- getFromNamespace("check_A_int", "anisoFun")
+check_center <- getFromNamespace("check_center", "anisoFun")
+incenter_inradius_isoprob_calculation<- getFromNamespace("incenter_inradius_isoprob_calculation", "anisoFun")
+cone_vertices_director_vertices<- getFromNamespace("cone_vertices_director_vertices", "anisoFun")
 # loading function from anisoFun package manually
 # Set the path to the folder containing the .R files
-folder_path <- "F:/Postdoc/Rproject/Plant-species-coexistence-and-multifunctionality/code/code distance to exclusion"
+folder_path <- "D:/Postdoc/Linking_coexistence_mechanisms_and_biodiversity_effects/coexistence_BEF_code/scripts/code distance to exclusion"
 # Get a list of all .R files in the folder
 files <- list.files(path = folder_path, pattern = "\\.R$", full.names = TRUE)
 
@@ -206,9 +212,9 @@ thetaNorm2 <- function(alpha, lambda) {
   return(theta1_S)
 }
 
-combination <- Filter(function(x) nrow(x) > 0, combination)
-comp <- Filter(function(x) nrow(x) > 0, comp)
-richness <- Filter(function(x) nrow(x) > 0, richness)
+#combination <- Filter(function(x) nrow(x) > 0, combination)
+#comp <- Filter(function(x) nrow(x) > 0, comp)
+#richness <- Filter(function(x) nrow(x) > 0, richness)
 
 ##Normalized theta1 function received from Oscar, based on anisoFun, however, the output are not the same compare to thetaNrom2
 ##I understand that this is the distance from the incenter to all the edges of the FD (along the surface of the unit ball) multiply sqrt(number of species)
@@ -471,6 +477,7 @@ structural_coex_new3 <- function(alpha, intrinsic, n, combination, list_names, p
   return(results_combos)
 }
 
+
 #I save it as toolbox.R
 
 ## function to predict from multigroup
@@ -610,4 +617,106 @@ plot.res.sem <- function(fit_data, pred_term, residual_list, cols, alpha, xlab, 
     lines(xf, yf, lwd = 2, col = cols[i])
     
   }
+}
+
+library(dplyr)
+
+metric_names <- c("Omega", "theta", "distance_to_exclusion","differential", "differential_old", "Omega_all_pairs")
+
+# Combine one saved dataset with its corresponding overlap results.
+combine_one_dataset <- function(saved_results, overlap_results,
+                                season_name, treatment_name) {
+  
+  overlap_columns <- c(
+    "Omega_overlap", "Omega_all_pairs", "differential", "overlap",
+    "overlap_n_samples", "overlap_seed"
+  )
+  
+  stopifnot(
+    length(saved_results) == 99L,
+    length(overlap_results) == length(saved_results)
+  )
+  
+  combined_iterations <- vector("list", length(saved_results))
+  
+  for (j in seq_along(saved_results)) {
+    
+    original <- dplyr::bind_rows(saved_results[[j]]$result_list) %>%
+      dplyr::mutate(plot = as.character(plot))
+    
+    updated <- dplyr::bind_rows(overlap_results[[j]]) %>%
+      dplyr::mutate(plot = as.character(plot))
+    
+    stopifnot(
+      !anyNA(original$plot),
+      !anyNA(updated$plot),
+      !anyDuplicated(original$plot),
+      !anyDuplicated(updated$plot),
+      setequal(original$plot, updated$plot),
+      all(overlap_columns %in% names(updated))
+    )
+    
+    # Match plots within the same randomization.
+    matched_rows <- match(original$plot, updated$plot)
+    
+    # Confirm treatment and iteration where recorded.
+    if ("treatment" %in% names(original) &&
+        "treatment" %in% names(updated)) {
+      stopifnot(
+        as.character(original$treatment) ==
+          as.character(updated$treatment[matched_rows])
+      )
+    }
+    
+    if ("randomization" %in% names(updated)) {
+      stopifnot(all(updated$randomization == j))
+    }
+    
+    # Preserve previous estimates before replacing them.
+    if (!"differential_old" %in% names(original)) {
+      original$differential_old <- original$differential
+    }
+    
+    if (!"overlap_old" %in% names(original)) {
+      original$overlap_old <- original$overlap
+    }
+    
+    # Update only the overlap-related columns.
+    for (column in overlap_columns) {
+      original[[column]] <- updated[[column]][matched_rows]
+    }
+    
+    original$randomization <- j
+    original$season <- season_name
+    original$Treatment <- treatment_name
+    original$year <- 2016
+    
+    numeric_columns <- intersect(
+      c(
+        "Omega", "Omega1", "Omega2",
+        "theta", "theta1", "theta2",
+        "distance_to_exclusion", "feasibility", "coex_rate",
+        "differential_old", "overlap_old",
+        overlap_columns
+      ),
+      names(original)
+    )
+    
+    original <- original %>%
+      dplyr::mutate(
+        dplyr::across(
+          dplyr::all_of(numeric_columns),
+          ~ as.numeric(as.character(.x))
+        )
+      )
+    
+    combined_iterations[[j]] <- original
+  }
+  
+  combined <- dplyr::bind_rows(combined_iterations)
+  
+  stopifnot(
+    !anyDuplicated(combined[c("plot", "randomization")])
+  )
+  combined
 }
